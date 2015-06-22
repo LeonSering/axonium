@@ -1,0 +1,9 @@
+Features
+
+1) Malwerkzeug, Radiergummi 
+2) Liste mit Längen: Klick -> text bearbeiten
+3) Button "Nach Excel exportieren"
+4) Datei öffnen + Nächstes Bild
+5) Dateibrowser
+
+Geschwindigkeit erhöhen (Sparse matrix)
