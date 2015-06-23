@@ -47,14 +47,14 @@ class Axonium:
     
 
     ## Schwellwert Slider
-    self.sliderThreshold = Scale(self.main, from_=0, to=50, length=600, resolution=0.05,tickinterval=5, orient=HORIZONTAL, command=self.sliderEvent)
+    self.sliderThreshold = Scale(self.main, from_=1, to=50, length=600, resolution=0.05,tickinterval=3, orient=HORIZONTAL, command=self.sliderEvent)
     self.sliderThreshold.set(13)
     self.sliderThreshold.grid(row=1, column = 0)
     
 
     
     ## Jump Slider
-    self.sliderJump = Scale(self.main, from_=0, to=20, length=600, resolution=1,tickinterval=5, orient=HORIZONTAL, command=self.sliderEvent)
+    self.sliderJump = Scale(self.main, from_=1, to=20, length=600, resolution=1,tickinterval=3, orient=HORIZONTAL, command=self.sliderEvent)
     self.sliderJump.set(10)
     self.sliderJump.grid(row=1, column = 1)
     
@@ -93,15 +93,20 @@ class Axonium:
       self.sliderTouched = False
       
     if self.labels[self.y,self.x] == -1: # Ist der Hintergrund angeklickt worden?
-      self.selection = 0 * self.monochrom
-    else: # waehle die Zusammenhangskomponente aus
-      self.selection = (self.labels == self.labels[self.y,self.x])
+      self.resetSelection()
+      self.updateImg()
+      return
+    # waehle die Zusammenhangskomponente aus
+    self.selection = (self.labels == self.labels[self.y,self.x])
+    self.showSelection = True
   
-  
-    self.path = medial_axis(self.selection)
+    # bestimme das Skelett
+    self.skeleton = medial_axis(self.selection)
+    print self.skeleton
     
+    # Bestimme den Zellkern (naehchstgelegener Punkt des Skeletts zur Klickposition
     minDist = 100000
-    sparsePath = sparse.coo_matrix(self.path)   
+    sparsePath = sparse.coo_matrix(self.skeleton)   
     for (i,j) in zip(sparsePath.row, sparsePath.col):
       dist = (i-self.y)^2 + (j-self.x)^2
       if dist < minDist:
@@ -110,7 +115,44 @@ class Axonium:
   
     self.cellkernel = nearest ## Von hier aus soll die laenge gemessen werden.
     
-    #### TO CONTINURE
+    #### Do a BFS in skeleton starting at cellkernel
+    self.bestChildren = {}
+    self.path = np.zeros(self.imageSize)
+    self.notVisited = self.skeleton.copy()
+    
+    def visit(pos, parent):
+      print pos
+      self.notVisited[pos] = False
+      maxChildLength = 0
+      bestChild = False
+      for i in [(-1,-1),(-1,0),(-1,1),(0,1),(1,1),(1,0),(1,-1),(0,-1)]: # alle 8 nachbarn
+        child = (pos[0] + i[0], pos[1] + i[1])
+        if child != parent:
+          if self.notVisited[child[0]][child[1]] == True:
+            childLength = visit(child, pos)
+            if childLength > maxChildLength:
+              maxChildLength = childLength
+              bestChild = child
+      if bestChild:
+        print 'bestChild', bestChild, 'with length:', maxChildLength
+        self.bestChildren[pos] = bestChild
+      return maxChildLength + 1
+    
+    self.pathLength = visit(self.cellkernel, 0)
+
+
+    pos = self.cellkernel
+    while(self.bestChildren.has_key(pos)):
+      self.path[pos] = True
+      pos = self.bestChildren[pos]
+
+    print 'pathlength:', self.pathLength    
+  #  q = Queue()
+  #  q.put(self.cellkernel, 0, 0)
+  #  
+  #  while (q.full()):
+ #     pos, parent, depth = q.get()
+      
   
     self.updateImg()
     
@@ -135,10 +177,19 @@ class Axonium:
   def updateImg(self):
     maskScaled = 255* self.mask
     
-    a = np.asarray(self.image).copy()
-    a[:,:,0] = maskScaled
-    a[:,:,1] = 255*self.selection
-    a[:,:,2] = np.maximum(maskScaled - 255* self.selection, 0)
+    a = np.asarray(self.image).copy()    
+    if self.showSelection:
+      bigPath = dilation(self.path, disk(2))
+      a[:,:,0] = np.minimum(maskScaled + bigPath,255)
+      a[:,:,1] = np.minimum(255*self.selection + bigPath,255)
+      a[:,:,2] = np.minimum(np.maximum(maskScaled - 255* self.selection, 0) + bigPath, 255)
+      
+   #   a[self.cellkernel[0],self.cellkernel[1],0] = 100 ## Cellkernel einzeichnen
+    else:
+      a[:,:,0] = maskScaled
+      a[:,:,1] = 0
+      a[:,:,2] = maskScaled
+      
     maskImg = Image.fromarray(a) 
 
     maskResize = maskImg.resize(self.displaySize)
@@ -148,6 +199,7 @@ class Axonium:
   ################### Auswahl aufheben ##################
   def resetSelection(self):
     self.selection = np.zeros(self.imageSize)
+    self.showSelection = False
 
 instance = Axonium()
 
