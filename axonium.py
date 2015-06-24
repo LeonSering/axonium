@@ -21,6 +21,8 @@ class Axonium:
   
   def __init__(self):
     self.main = Tk()
+    self.main.title("Axonium")
+    self.main.resizable(False, False) #Groesse kann nicht mehr veraendert werden
 
  
     ## Anzeigegroesse und Skalierungsfaktor.
@@ -86,19 +88,21 @@ class Axonium:
     self.x = 0
     self.y = 0
     
-    self.folderPath = ''
-    os.mkdir("backup")
-    self.initiateImage('') #load a black image
-    
-    self.loadStatus()
-    
-
+    ## backup initialisieren:
+    if not os.path.exists("backup"):
+      os.makedirs("backup")
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    print(timestamp)
-    
     self.backupName = "backup/"+timestamp+".txt"
+    print(self.backupName)
 
-      
+    ## leeres Bild laden
+    self.folderPath = ''      
+   # self.initiateImage('') #load a black image
+    
+    ## alte Einstellungen laden:
+    self.loadStatus()
+  
+  
     self.main.mainloop()
     
     
