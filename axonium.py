@@ -11,6 +11,7 @@ from skimage.morphology import medial_axis
 from skimage.morphology import disk
 from skimage.morphology import dilation
 from skimage.morphology import label
+from skimage.draw import line
 #import timeit
 import datetime
 
@@ -34,42 +35,52 @@ class Axonium:
 
     ## Das original Bild
     self.imageWid = Canvas(self.main, width = self.displaySize[0], height = self.displaySize[1])
-    self.imageWid.grid(row=2,column=2)
+    self.imageWid.grid(row=2,column=2, columnspan = 2)
     self.image_on_canvas = self.imageWid.create_image(0,0,anchor=NW)
     self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-1>', self.image_click)
+    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-3>', self.beginDrawing)
+    self.imageWid.tag_bind(self.image_on_canvas, '<B3-Motion>', self.drawing)
+    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonRelease-3>', self.endDrawing)
     
     ## Das rechte Bild (MASK)
     self.maskWid = Canvas(self.main, width = self.displaySize[0], height = self.displaySize[1])
-    self.maskWid.grid(row=2,column=3)
+    self.maskWid.grid(row=2,column=4, columnspan = 2)
     self.mask_on_canvas = self.maskWid.create_image(0,0,anchor=NW)
     self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-1>', self.mask_click)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-3>', self.beginDrawing)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<B3-Motion>', self.drawing)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonRelease-3>', self.endDrawing)
     
 
     ## Schwellwert Slider
-    self.sliderThreshold = Scale(self.main, from_=0, to=50, length=500, resolution=0.1,tickinterval=5, orient=HORIZONTAL)
+    self.labelThreshold = Label(self.main, text = "Schwellwert:")
+    self.labelThreshold.grid(row=3, column = 2)
+    self.sliderThreshold = Scale(self.main, from_=0, to=50, length=450, resolution=0.1,tickinterval=5, orient=HORIZONTAL)
     self.sliderThreshold.bind("<ButtonRelease-1>", self.sliderThresholdEvent)
     self.sliderThreshold.set(13)
-    self.sliderThreshold.grid(row=3, column = 2)
+    self.sliderThreshold.grid(row=3, column = 3)
     
 
     
     ## Jump Slider
-    self.sliderJump = Scale(self.main, from_=1, to=20, length=500, resolution=1,tickinterval=3, orient=HORIZONTAL)
+    self.labelJump = Label(self.main, text = "Ausdehnung:")
+    self.labelJump.grid(row=3, column = 4)
+    self.sliderJump = Scale(self.main, from_=1, to=20, length=450, resolution=1,tickinterval=3, orient=HORIZONTAL)
     self.sliderJump.bind("<ButtonRelease-1>", self.sliderJumpEvent)
     self.sliderJump.set(10)
-    self.sliderJump.grid(row=3, column = 3)
+    self.sliderJump.grid(row=3, column = 5)
     
     ## list box for length
     self.scrollbarLength = Scrollbar(self.main, orient=VERTICAL)        
-    self.scrollbarLength.grid(row = 2, column = 5, sticky=N+S)
+    self.scrollbarLength.grid(row = 2, column = 7, sticky=N+S)
     self.listboxLength = Listbox (self.main, height = 10, width = 10, yscrollcommand = self.scrollbarLength.set)
-    self.listboxLength.grid(row = 2, column = 4,sticky=E+N+S)
+    self.listboxLength.grid(row = 2, column = 6,sticky=E+N+S)
     self.scrollbarLength.config(command=self.listboxLength.yview)
     self.listboxLength.bind('<<ListboxSelect>>', self.buttonToDeleteMode)
     
     ## Button der Laenge des aktuellen Pfades anzeigt und bei Klick diesen in diese in die Liste eintraegt (rechts unten)
     self.buttonLength = Button(self.main, text="0", state=DISABLED, command=self.insertLength)
-    self.buttonLength.grid(row = 3, column = 4, columnspan=2, sticky=E+W)
+    self.buttonLength.grid(row = 3, column = 6, columnspan=2, sticky=E+W)
     
     ## filelist
     self.scrollbarFiles = Scrollbar(self.main, orient=VERTICAL)        
@@ -82,11 +93,25 @@ class Axonium:
     ## Open File Button
     self.buttonOpenFile = Button(self.main, text="Öffne Ordner", command=self.selectFolder)
     self.buttonOpenFile.grid(row = 3, column = 0, columnspan = 2, sticky=E+W)
-
     
-    ## aktuelle Auswahl.
+    ## Export to Excel
+    self.buttonExcel = Button(self.main, text="Excel", command=self.exportToExcel)
+    self.buttonExcel.grid(row = 1, column = 6, columnspan = 2, sticky=E+W)
+
+    ## Drawing Mode Buttons
+    self.buttonPen = Button(self.main, text="Stift", background='green', state=DISABLED, command=self.selectPen, disabledforeground='black')
+    self.buttonPen.grid(row = 1, column = 0, columnspan = 2, sticky=E+W)
+    
+    self.buttonEreaser = Button(self.main, text="Radiergummi",background = 'lightgrey', command=self.selectEreaser, disabledforeground='black')
+    self.buttonEreaser.grid(row = 1, column = 2, sticky=E+W)
+    
+    ## aktueller Klick
     self.x = 0
     self.y = 0
+    
+    self.drawingX = 0
+    self.drawingY = 0
+    self.drawingMode = 1
     
     ## backup initialisieren:
     if not os.path.exists("backup"):
@@ -107,7 +132,7 @@ class Axonium:
     
     
     
-  ########### Mouse Clicks ##################  
+  ########### Left Mouse Clicks ##################  
   def mask_click(self, event):
     x, y = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
     print('MaskClick: x: ', x, ' y: ', y, ' label: ', self.labels[y,x])
@@ -192,10 +217,35 @@ class Axonium:
   #  while (q.full()):
  #     pos, parent, depth = q.get()
       
-
+    self.updateBigPath()
     self.updateImg()
     
+  ############ Right Mouse Clicks ###############
+  
+  def beginDrawing(self, event):
+    self.drawingX, self.drawingY = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
+    print("Start Drawing")
     
+  def drawing(self, event):
+    x = min(max(int(event.x / self.skalierungsfaktor), 1), self.imageSize[1] -2)
+    y = min(max(int(event.y / self.skalierungsfaktor), 1), self.imageSize[0] -2)
+    print("Draw Line from ", self.drawingX, self.drawingY, " to ", x, y)
+    rr, cc = line(self.drawingX, self.drawingY, x, y)
+    self.bluredMask[cc, rr] = self.drawingMode
+    self.bluredMask[cc+1, rr] = self.drawingMode
+    self.bluredMask[cc-1, rr] = self.drawingMode
+    self.bluredMask[cc, rr+1] = self.drawingMode
+    self.bluredMask[cc, rr-1] = self.drawingMode
+    self.drawingX, self.drawingY = x, y # letzte Position aktualisieren
+    self.updateImg()
+    
+  def endDrawing(self, event):
+    self.updateLabels()
+    if self.showSelection:
+      self.click()
+    else:
+      self.x, self.y =self.drawingX, self.drawingY
+      self.click()
   
     ############## Slider-Events ###############
   def sliderThresholdEvent(self, event):
@@ -211,8 +261,17 @@ class Axonium:
     self.saveStatus()
     if self.showSelection: # falls gerade eine Selection aktiv ist (geklickt wurde)
       self.click() #updateImg included
-      
-      
+
+  ########### Drawing Mode Button Events ############
+  def selectPen(self):
+    self.buttonPen.config(background = 'green', state = DISABLED)    
+    self.buttonEreaser.config(background = 'lightgrey', state = NORMAL)
+    self.drawingMode = 1
+    
+  def selectEreaser(self):
+    self.buttonPen.config(background = 'lightgrey', state = NORMAL)    
+    self.buttonEreaser.config(background = 'green', state = DISABLED)  
+    self.drawingMode = 0
    ############ ButtonLength event ##################
   def insertLength(self):
     self.buttonLength.config(state = DISABLED)
@@ -234,9 +293,11 @@ class Axonium:
     self.buttonLength.config(text= 'Löschen', state = NORMAL)
     self.deleteMode = True
     
+  ################## Export To Excel ###############
+  def exportToExcel(self):
+    print("Export to Excel")
+    
     ############## OpenFolder #######################
-    
-    
   def selectFolder(self):
     self.folderPath = askdirectory(initialdir = self.folderPath)
     self.saveStatus()
@@ -291,31 +352,35 @@ class Axonium:
     
     
   ############### Mask sowie die Labels werden aktualisiert ############
-  def updateMask(self):
-    ## erstelle neue Mask
+  def updateMask(self):    ## erstelle neue Mask
+    print("updateMask")
     self.mask = (self.monochrom  >= self.sliderThreshold.get())
-
-    ## erstelle Labels neu. Dafuer wird bluredMask aktualisiert.
+    
     selem = disk(self.sliderJump.get())
- 
-    bluredMask = dilation(self.mask, selem)
- 
-    self.labels = label(bluredMask, neighbors=8, background = 0)
+    self.bluredMask = dilation(self.mask, selem) / 255
+    self.updateLabels()
 
+    
+  def updateLabels(self):
+    print("updateLabels")
+    ## erstelle Labels neu. Dafuer wird bluredMask aktualisiert.
+    self.labels = label(self.bluredMask, neighbors=8, background = 0)
+    
+  def updateBigPath(self):
+    self.bigPath = dilation(self.path, disk(3)) # Warnung for rounding (doesnt matter)    
 
   ################### Bild aktualisieren ###############
   def updateImg(self):
     maskScaled = 100* self.mask  
     a = np.asarray(self.image).copy()    
     if self.showSelection:
-      bigPath = dilation(self.path, disk(3)) # Warnung for rounding (doesnt matter)
-      a[:,:,0] = np.minimum(maskScaled + bigPath,255)
-      a[:,:,1] = np.minimum(50*self.selection + bigPath,255)
-      a[:,:,2] = np.minimum(np.maximum(maskScaled - 50* self.selection, 0) + bigPath, 255)
+      a[:,:,0] = np.minimum(50*self.bluredMask + maskScaled + self.bigPath,255)
+      a[:,:,1] = np.minimum(50*self.selection + self.bigPath,255)
+      a[:,:,2] = np.minimum(np.maximum(maskScaled - 50* self.selection, 0) + self.bigPath, 255)
    
    #   a[self.cellkernel[0],self.cellkernel[1],0] = 100 ## Cellkernel einzeichnen
     else:
-      a[:,:,0] = maskScaled
+      a[:,:,0] = np.minimum(50*self.bluredMask + maskScaled,255)
       a[:,:,1] = 0
       a[:,:,2] = maskScaled
       
