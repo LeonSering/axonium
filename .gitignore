@@ -1,0 +1,3 @@
+*.directory
+backup/*
+status.txt 
