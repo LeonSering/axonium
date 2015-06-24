@@ -1,3 +1,4 @@
 *.directory
 backup/*
 status.txt
+*.xlsx

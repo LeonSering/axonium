@@ -2,7 +2,7 @@ import queue
 import os
 import pickle
 from tkinter import *
-from tkinter.filedialog import askdirectory
+from tkinter.filedialog import askdirectory, asksaveasfilename
 from PIL import Image, ImageTk
 import numpy as np
 from scipy import ndimage
@@ -11,7 +11,8 @@ from skimage.morphology import medial_axis
 from skimage.morphology import disk
 from skimage.morphology import dilation
 from skimage.morphology import label
-from skimage.draw import line
+from skimage.draw import line, circle
+import xlsxwriter
 #import timeit
 import datetime
 
@@ -24,7 +25,6 @@ class Axonium:
     self.main = Tk()
     self.main.title("Axonium")
     self.main.resizable(False, False) #Groesse kann nicht mehr veraendert werden
-
  
     ## Anzeigegroesse und Skalierungsfaktor.
     self.imageSize = [1040, 1392] # erst y, dann x
@@ -55,7 +55,7 @@ class Axonium:
     ## Schwellwert Slider
     self.labelThreshold = Label(self.main, text = "Schwellwert:")
     self.labelThreshold.grid(row=3, column = 2)
-    self.sliderThreshold = Scale(self.main, from_=0, to=50, length=450, resolution=0.1,tickinterval=5, orient=HORIZONTAL)
+    self.sliderThreshold = Scale(self.main, from_=0, to=100, length=450, resolution=0.1,tickinterval=10, orient=HORIZONTAL)
     self.sliderThreshold.bind("<ButtonRelease-1>", self.sliderThresholdEvent)
     self.sliderThreshold.set(13)
     self.sliderThreshold.grid(row=3, column = 3)
@@ -73,7 +73,7 @@ class Axonium:
     ## list box for length
     self.scrollbarLength = Scrollbar(self.main, orient=VERTICAL)        
     self.scrollbarLength.grid(row = 2, column = 7, sticky=N+S)
-    self.listboxLength = Listbox (self.main, height = 10, width = 10, yscrollcommand = self.scrollbarLength.set)
+    self.listboxLength = Listbox (self.main, height = 10, width = 10, yscrollcommand = self.scrollbarLength.set, takefocus= 0)
     self.listboxLength.grid(row = 2, column = 6,sticky=E+N+S)
     self.scrollbarLength.config(command=self.listboxLength.yview)
     self.listboxLength.bind('<<ListboxSelect>>', self.buttonToDeleteMode)
@@ -85,10 +85,13 @@ class Axonium:
     ## filelist
     self.scrollbarFiles = Scrollbar(self.main, orient=VERTICAL)        
     self.scrollbarFiles.grid(row = 2, column = 1, sticky=N+S)
-    self.listboxFiles = Listbox (self.main, height = 10, width = 12, yscrollcommand = self.scrollbarFiles.set)
+    self.listboxFiles = Listbox (self.main, height = 10, width = 12, yscrollcommand = self.scrollbarFiles.set, takefocus= 0)
     self.listboxFiles.grid(row = 2, column = 0,sticky=E+N+S)
     self.scrollbarFiles.config(command=self.listboxFiles.yview)
     self.listboxFiles.bind('<<ListboxSelect>>', self.loadFile)
+    self.main.bind('<Down>', self.nextFile)
+    self.main.bind('<Up>', self.prevFile)
+    self.listboxFiles.bind('<FocusIn>', self.listboxFilesFocus)
     
     ## Open File Button
     self.buttonOpenFile = Button(self.main, text="Öffne Ordner", command=self.selectFolder)
@@ -101,9 +104,11 @@ class Axonium:
     ## Drawing Mode Buttons
     self.buttonPen = Button(self.main, text="Stift", background='green', state=DISABLED, command=self.selectPen, disabledforeground='black')
     self.buttonPen.grid(row = 1, column = 0, columnspan = 2, sticky=E+W)
+    self.main.bind('s', self.selectPen)
     
     self.buttonEreaser = Button(self.main, text="Radiergummi",background = 'lightgrey', command=self.selectEreaser, disabledforeground='black')
     self.buttonEreaser.grid(row = 1, column = 2, sticky=E+W)
+    self.main.bind('r', self.selectEreaser)
     
     ## aktueller Klick
     self.x = 0
@@ -112,6 +117,8 @@ class Axonium:
     self.drawingX = 0
     self.drawingY = 0
     self.drawingMode = 1
+    
+    self.deleteMode = False
     
     ## backup initialisieren:
     if not os.path.exists("backup"):
@@ -131,23 +138,22 @@ class Axonium:
     self.main.mainloop()
     
     
-    
-  ########### Left Mouse Clicks ##################  
+########### Left Mouse Clicks ##################  
   def mask_click(self, event):
     x, y = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
     print('MaskClick: x: ', x, ' y: ', y, ' label: ', self.labels[y,x])
     self.x = x
     self.y = y
-    self.click()
+    self.findPath()
 
   def image_click(self, event):
     x, y = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
     print('ImageClick: x: ', x, ' y: ', y, ' label: ', self.labels[y,x])
     self.x = x
     self.y = y
-    self.click()
+    self.findPath()
     
-  def click(self):
+  def findPath(self):
     if self.labels[self.y,self.x] == -1: # Ist der Hintergrund angeklickt worden?
       self.resetSelection()
       self.updateImg()
@@ -220,7 +226,7 @@ class Axonium:
     self.updateBigPath()
     self.updateImg()
     
-  ############ Right Mouse Clicks ###############
+############ Right Mouse Clicks ###############
   
   def beginDrawing(self, event):
     self.drawingX, self.drawingY = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
@@ -242,12 +248,12 @@ class Axonium:
   def endDrawing(self, event):
     self.updateLabels()
     if self.showSelection:
-      self.click()
+      self.findPath()
     else:
       self.x, self.y =self.drawingX, self.drawingY
-      self.click()
+      self.findPath()
   
-    ############## Slider-Events ###############
+############## Slider-Events ###############
   def sliderThresholdEvent(self, event):
     print ('ThresholdSlider set to', self.sliderThreshold.get())
     self.resetSelection()
@@ -260,20 +266,22 @@ class Axonium:
     self.updateMask()
     self.saveStatus()
     if self.showSelection: # falls gerade eine Selection aktiv ist (geklickt wurde)
-      self.click() #updateImg included
+      self.findPath() #updateImg included
 
-  ########### Drawing Mode Button Events ############
-  def selectPen(self):
+########### Drawing Mode Button Events ############
+  def selectPen(self, event = 0):
     self.buttonPen.config(background = 'green', state = DISABLED)    
     self.buttonEreaser.config(background = 'lightgrey', state = NORMAL)
     self.drawingMode = 1
     
-  def selectEreaser(self):
+  def selectEreaser(self, event = 0):
     self.buttonPen.config(background = 'lightgrey', state = NORMAL)    
     self.buttonEreaser.config(background = 'green', state = DISABLED)  
     self.drawingMode = 0
    ############ ButtonLength event ##################
-  def insertLength(self):
+  def insertLength(self, event = 0):
+    if self.buttonLength["state"] == DISABLED:
+      return
     self.buttonLength.config(state = DISABLED)
     if self.deleteMode == False:
       self.listboxLength.insert(END, self.pathLength)
@@ -287,21 +295,33 @@ class Axonium:
       
   def buttonToInsertMode(self):
     self.buttonLength.config(text= str(self.pathLength)+  'px', state = NORMAL)
+    self.buttonLength.focus_set()
     self.deleteMode = False
     
   def buttonToDeleteMode(self, event):
     self.buttonLength.config(text= 'Löschen', state = NORMAL)
     self.deleteMode = True
     
-  ################## Export To Excel ###############
+################## Export To Excel ###############
   def exportToExcel(self):
+    excelFileName = asksaveasfilename(initialdir = self.folderPath, defaultextension=".xlsx")
+    excelFile = xlsxwriter.Workbook(excelFileName)
+    worksheet = excelFile.add_worksheet()
+    i = 1
+    for value in self.listboxLength.get(0, END):
+      print(value)
+      worksheet.write('A'+str(i), value)
+      i = i+1
+    excelFile.close()
     print("Export to Excel")
     
-    ############## OpenFolder #######################
+############## OpenFolder #######################
   def selectFolder(self):
-    self.folderPath = askdirectory(initialdir = self.folderPath)
-    self.saveStatus()
-    self.openFolder()
+    folderPath = askdirectory(initialdir = self.folderPath)
+    if folderPath != '':
+      self.folderPath = folderPath
+      self.saveStatus()
+      self.openFolder()
     
   def openFolder(self, selection = 0):
     self.listboxFiles.delete(0, END)
@@ -313,11 +333,16 @@ class Axonium:
       print("no Folder found")
     if self.listboxFiles.size() > 0:
       self.listboxFiles.selection_set(selection)
-      self.loadFile(0)
+      self.loadFile()
     
     
-    ########### Load Image #######################
-  def loadFile(self, event):
+########### Load Image #######################
+  ## Falls Datei mit Klick ausgewahlt wurde, soll
+  #der Focus nicht auf der listbox bleiben(wegen Pfeiltasten)
+  def listboxFilesFocus(self, event = 0): 
+    self.buttonOpenFile.focus_set()    
+    
+  def loadFile(self, event = 0):
     i = self.listboxFiles.curselection()
     self.saveStatus()
     if i != (): # ist etwas ausgewaehlt?
@@ -350,8 +375,23 @@ class Axonium:
     self.updateMask()
     self.updateImg()
     
+  def nextFile(self, event = 0):
+    i = self.listboxFiles.curselection()
+    print('nextFile')
+    if len(i) > 0 and self.listboxFiles.size()-1 > i[0]:
+      self.listboxFiles.selection_clear(i)
+      self.listboxFiles.selection_set((i[0]+1))
+      self.loadFile()
+      
+  def prevFile(self, event = 0):
+    i = self.listboxFiles.curselection()
+    print('prevFile')
+    if len(i) > 0 and self.listboxFiles.size() > 0:
+      self.listboxFiles.selection_clear(i)
+      self.listboxFiles.selection_set((i[0]-1))
+      self.loadFile()
     
-  ############### Mask sowie die Labels werden aktualisiert ############
+############### Mask sowie die Labels werden aktualisiert ############
   def updateMask(self):    ## erstelle neue Mask
     print("updateMask")
     self.mask = (self.monochrom  >= self.sliderThreshold.get())
@@ -367,9 +407,9 @@ class Axonium:
     self.labels = label(self.bluredMask, neighbors=8, background = 0)
     
   def updateBigPath(self):
-    self.bigPath = dilation(self.path, disk(3)) # Warnung for rounding (doesnt matter)    
+    self.bigPath = dilation(self.path, disk(3)) # Warnung for rounding (doesnt matter)  
 
-  ################### Bild aktualisieren ###############
+################### Bild aktualisieren ###############
   def updateImg(self):
     maskScaled = 100* self.mask  
     a = np.asarray(self.image).copy()    
@@ -377,15 +417,17 @@ class Axonium:
       a[:,:,0] = np.minimum(50*self.bluredMask + maskScaled + self.bigPath,255)
       a[:,:,1] = np.minimum(50*self.selection + self.bigPath,255)
       a[:,:,2] = np.minimum(np.maximum(maskScaled - 50* self.selection, 0) + self.bigPath, 255)
-   
+
+      rr, cc = circle(self.cellkernel[1], self.cellkernel[0], 7)
+      a[cc,rr,0] = 0
+      a[cc,rr,1] = 255 
+      a[cc,rr,2] = 255
    #   a[self.cellkernel[0],self.cellkernel[1],0] = 100 ## Cellkernel einzeichnen
     else:
       a[:,:,0] = np.minimum(50*self.bluredMask + maskScaled,255)
       a[:,:,1] = 0
       a[:,:,2] = maskScaled
-      
-
-      
+   
     maskImg = Image.fromarray(a) 
 
     maskResize = maskImg.resize(self.displaySize)
@@ -393,7 +435,7 @@ class Axonium:
     self.maskTk = ImageTk.PhotoImage(maskResize)
     self.maskWid.itemconfig(self.mask_on_canvas, image = self.maskTk)
 
-  ################### Auswahl aufheben ##################
+################### Auswahl aufheben ##################
   def resetSelection(self):
     self.selection = np.zeros(self.imageSize)
     self.showSelection = False
