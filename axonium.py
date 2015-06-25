@@ -1,19 +1,14 @@
-import queue
-import os
-import pickle
+import os, pickle, queue
 from tkinter import *
 from tkinter.filedialog import askdirectory, asksaveasfilename
 from tkinter import messagebox
 from PIL import Image, ImageTk
 import numpy as np
-from scipy import ndimage
-from scipy import sparse
-from skimage.morphology import medial_axis
-from skimage.morphology import disk
-from skimage.morphology import dilation
-from skimage.morphology import label
+from scipy import ndimage, sparse
+from skimage.morphology import medial_axis, disk, dilation, label
 from skimage.draw import line, circle
-from skimage.exposure import adjust_gamma, rescale_intensity
+from skimage.exposure import rescale_intensity
+#from skimage.exposure import adjust_gamma
 import xlsxwriter
 #import timeit
 import datetime
@@ -611,7 +606,7 @@ class Axonium:
  
 ################## On Closing ###########
   def closing(self):
-    if messagebox.askokcancel("Quit", "Wirklich schließen?"):
+    if messagebox.askokcancel("Beenden", "Wirklich beenden?"):
         self.main.destroy()
 
 instance = Axonium()
