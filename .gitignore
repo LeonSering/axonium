@@ -1,4 +1,4 @@
 *.directory
 backup/*
-status.txt
+status.pickle
 *.xlsx

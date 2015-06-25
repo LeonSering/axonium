@@ -13,7 +13,7 @@ from skimage.morphology import disk
 from skimage.morphology import dilation
 from skimage.morphology import label
 from skimage.draw import line, circle
-from skimage.exposure import adjust_gamma
+from skimage.exposure import adjust_gamma, rescale_intensity
 import xlsxwriter
 #import timeit
 import datetime
@@ -77,6 +77,13 @@ class Axonium:
     self.sliderJump.bind("<ButtonRelease-1>", self.sliderJumpEvent)
     self.sliderJump.set(10)
     self.sliderJump.grid(row=3, column = 5)
+    
+    
+    ## Gamma Slider
+    self.sliderGamma = Scale(self.main, from_=0, to=100, length=450, resolution=1,tickinterval=10, orient=HORIZONTAL)
+    self.sliderGamma.bind("<ButtonRelease-1>", self.sliderGammaEvent)
+    self.sliderGamma.set(0)
+    self.sliderGamma.grid(row=1, column = 5)
     
     ## list box for length
     self.scrollbarLength = Scrollbar(self.main, orient=VERTICAL)        
@@ -268,6 +275,7 @@ class Axonium:
     if self.drawingMode == -1:
       self.measurePathLength = 0
       self.resetMeasureImg()
+      self.updateImg()
       self.buttonToInsertMode()
     
   def drawing(self, event):
@@ -335,7 +343,14 @@ class Axonium:
     if self.showSelection: # falls gerade eine Selection aktiv ist (geklickt wurde)
       self.findPath() #updateImg included
     self.updateImg()
-
+    
+  def sliderGammaEvent(self, event):
+    print ('GammaSlider set to', self.sliderGamma.get())
+    self.saveStatus()
+    self.updateMeasureImageOriginal()
+    self.resetMeasureImg()
+    self.updateImg()
+    
 ########### Drawing Mode Button Events ############
   def selectPen(self, event = 0):
     self.buttonPen.config(background = 'green', state = DISABLED)    
@@ -477,19 +492,23 @@ class Axonium:
     b = self.arrayImg[:,:,2]
     self.monochrom = r + g + b #das Bild mit nurnoch einem Wert pro Pixel
     
-
-    
+   
     ## The original Image:
     imageResize = self.image.resize(self.displaySize)
     self.imageTk = ImageTk.PhotoImage(imageResize)
-    
     self.imageWid.itemconfig(self.image_on_canvas, image = self.imageTk)
-    self.measureImageOriginal = adjust_gamma(np.asarray(self.image).copy(), 0.75)
+    
+    self.updateMeasureImageOriginal()
     self.resetSelection()
     self.resetMeasureImg()
     self.updateMask()
     self.updateImg()
     
+  def updateMeasureImageOriginal(self):
+    print("updateMeasureImageOriginal")
+    #self.measureImageOriginal = adjust_gamma(np.asarray(self.image).copy(), 1-self.sliderGamma.get()/100) 
+    self.measureImageOriginal = rescale_intensity(np.asarray(self.image).copy(), in_range = (0, (101 - self.sliderGamma.get())/101*255)) 
+
   def nextFile(self, event = 0):
     i = self.listboxFiles.curselection()
     print('nextFile')
@@ -571,22 +590,24 @@ class Axonium:
     status = {"folderPath" :self.folderPath, 
                   "currentFileSelection" : self.listboxFiles.curselection(), 
                   "threshold": self.sliderThreshold.get(),
-                  "jump": self.sliderJump.get()}
+                  "jump": self.sliderJump.get(),
+                  "gamma": self.sliderGamma.get()}
     print("save status")
-    with open('status.txt', 'wb') as handle:
+    with open('status.pickle', 'wb') as handle:
       pickle.dump(status, handle)
 
   def loadStatus(self):
     print("load status")
     try:
-      with open('status.txt', 'rb') as handle:
+      with open('status.pickle', 'rb') as handle:
         status = pickle.loads(handle.read())
         self.folderPath = status["folderPath"]
         self.sliderThreshold.set(status["threshold"])
         self.sliderJump.set(status["jump"])
+        self.sliderGamma.set(status["gamma"])
         self.openFolder(selection = status["currentFileSelection"])
     except Exception:
-     print("No status.txt found")
+     print("No status.pickle found")
  
 ################## On Closing ###########
   def closing(self):
