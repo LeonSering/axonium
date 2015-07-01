@@ -5,13 +5,15 @@ from tkinter import messagebox
 from PIL import Image, ImageTk
 import numpy as np
 from scipy import ndimage, sparse
-from skimage.morphology import medial_axis, disk, dilation, label
+from skimage.morphology import medial_axis, disk, binary_dilation
 from skimage.draw import line, circle
 from skimage.exposure import rescale_intensity
+from skimage.measure import label
 #from skimage.exposure import adjust_gamma
 import xlsxwriter
 #import timeit
 import datetime
+#from time import time
 
 
 #np.set_printoptions(threshold=np.nan) # gesamte Matrix anschauen
@@ -19,6 +21,7 @@ import datetime
 class Axonium:
   
   def __init__(self):
+#    self.time = time()
     self.main = Tk()
     self.main.title("Axonium")
     self.main.resizable(False, False) #Groesse kann nicht mehr veraendert werden
@@ -40,19 +43,19 @@ class Axonium:
     self.imageWid = Canvas(self.main, width = self.displaySize[0], height = self.displaySize[1])
     self.imageWid.grid(row=2,column=2, columnspan = 2)
     self.image_on_canvas = self.imageWid.create_image(0,0,anchor=NW)
-    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-1>', self.image_click)
-    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-3>', self.beginDrawing)
-    self.imageWid.tag_bind(self.image_on_canvas, '<B3-Motion>', self.drawing)
-    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonRelease-3>', self.endDrawing)
+    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-3>', self.image_click)
+    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonPress-1>', self.beginDrawing)
+    self.imageWid.tag_bind(self.image_on_canvas, '<B1-Motion>', self.drawing)
+    self.imageWid.tag_bind(self.image_on_canvas, '<ButtonRelease-1>', self.endDrawing)
     
     ## Das rechte Bild (MASK)
     self.maskWid = Canvas(self.main, width = self.displaySize[0], height = self.displaySize[1])
     self.maskWid.grid(row=2,column=4, columnspan = 2)
     self.mask_on_canvas = self.maskWid.create_image(0,0,anchor=NW)
-    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-1>', self.mask_click)
-    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-3>', self.beginDrawing)
-    self.maskWid.tag_bind(self.mask_on_canvas, '<B3-Motion>', self.drawing)
-    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonRelease-3>', self.endDrawing)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-3>', self.mask_click)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonPress-1>', self.beginDrawing)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<B1-Motion>', self.drawing)
+    self.maskWid.tag_bind(self.mask_on_canvas, '<ButtonRelease-1>', self.endDrawing)
     
 
     ## Schwellwert Slider
@@ -70,7 +73,7 @@ class Axonium:
     self.labelJump.grid(row=3, column = 4)
     self.sliderJump = Scale(self.main, from_=1, to=20, length=450, resolution=1,tickinterval=3, orient=HORIZONTAL)
     self.sliderJump.bind("<ButtonRelease-1>", self.sliderJumpEvent)
-    self.sliderJump.set(10)
+    self.sliderJump.set(5)
     self.sliderJump.grid(row=3, column = 5)
     
     
@@ -102,6 +105,8 @@ class Axonium:
     self.main.bind('<Down>', self.nextFile)
     self.main.bind('<Up>', self.prevFile)
     self.listboxFiles.bind('<FocusIn>', self.listboxFilesFocus)
+    self.labelFilename = Label(self.main, text = "Keine Datei geladen")
+    self.labelFilename.grid(row=1, column = 3)
     
     ## Open File Button
     self.buttonOpenFile = Button(self.main, text="Öffne Ordner", command=self.selectFolder)
@@ -143,7 +148,11 @@ class Axonium:
 
     ## leeres Bild laden
     self.folderPath = ''      
-   # self.initiateImage('') #load a black image
+    # self.initiateImage('') #load a black image
+   
+    self.bluredMask = np.zeros(self.imageSize)
+    self.bigPath = np.zeros(self.imageSize)
+  
     
     ## alte Einstellungen laden:
     self.loadStatus()
@@ -171,13 +180,12 @@ class Axonium:
     else:
       self.x = x
       self.y = y
-      self.findPath()
-    
-    self.updateImg()    
-      
-    
+      self.findPath() 
+    self.updateImg() 
 ######### Laengsten Kurzesten Weg Messen ############    
   def findPath(self):
+    print("findPath")
+ #   print("findPath Start: ", self.timeit())
     if self.labels[self.y,self.x] == -1: # Ist der Hintergrund angeklickt worden?
       self.resetSelection()
       self.updateImg()
@@ -186,24 +194,40 @@ class Axonium:
     # waehle die Zusammenhangskomponente aus
     self.selection = (self.labels == self.labels[self.y,self.x])
     self.showSelection = True
+    
+#    print("Selection made: ", self.timeit())
   
     # bestimme das Skelett
     self.skeleton = medial_axis(self.selection, mask = self.selection)
-  #  print(self.skeleton)
+ #   print("Skeleton: ", self.timeit())
+    
+
+    #  print(self.skeleton)
     # Bestimme den Zellkern (naehchstgelegener Punkt des Skeletts zur Klickposition
     minDist = 100000
-    sparsePath = sparse.coo_matrix(self.skeleton)   
-    for (i,j) in zip(sparsePath.row, sparsePath.col):
-      dist = (i-self.y)*(i-self.y) + (j-self.x)*(j-self.x)
-      if dist < minDist:
-        nearest = (i,j)
-        minDist = dist
+    
+    jump = self.sliderJump.get()
+    for (i,j) in np.ndindex((2*jump+1,2*jump+1)):
+      if self.skeleton[self.y-jump+i, self.x-jump+j] == 1:
+        dist = (j-jump)*(j-jump) + (i-jump)*(i-jump)      
+        if dist < minDist:
+          nearest = (self.y-jump+i, self.x-jump+j)
+          minDist = dist      
+    if minDist == 100000:
+      print("No nearest Neighbor found. Go through complete skeleton")
+      sparseSkeleton = sparse.coo_matrix(self.skeleton)
+      for (i,j) in zip(sparseSkeleton.row, sparseSkeleton.col):
+        dist = (i-self.y)*(i-self.y) + (j-self.x)*(j-self.x)
+        if dist < minDist:
+          nearest = (i,j)
+          minDist = dist
         
 
     
     self.cellkernel = nearest ## Von hier aus soll die laenge gemessen werden.
-    print('Kern: ', self.cellkernel, ' Abstand zum Mausklick: ', minDist)
+    print('Kernel: ', self.cellkernel, ' Distance to Click (squared): ', minDist)
     
+#    print("Cellkernel: ", self.timeit())
     #### Do a BFS in skeleton starting at cellkernel
     self.parents = {self.cellkernel:0}
     self.path = np.zeros(self.imageSize)
@@ -213,14 +237,11 @@ class Axonium:
     
     BFSQueue.put((self.cellkernel, 0, 0))
     
-    maxLevel = 0
-    bestEnd = self.cellkernel
+    pos = self.cellkernel
+    level = 0
     
     while(not BFSQueue.empty()):
       pos, parent, level = BFSQueue.get()
-      if level > maxLevel:
-        maxLevel = level
-        bestEnd = pos
       
       for i in [(-1,-1),(-1,0),(-1,1),(0,1),(1,1),(1,0),(1,-1),(0,-1)]: # alle 8 nachbarn
         child = (pos[0] + i[0], pos[1] + i[1])
@@ -230,8 +251,8 @@ class Axonium:
           notTouched[child[0]][child[1]] = False
           BFSQueue.put((child, pos, level + 1))
           self.parents[child] = pos
-
-    pos = bestEnd
+#    print("BFS: ", self.timeit())
+    
     i = -1
     ankor = pos
     self.pathLength = 0
@@ -249,7 +270,9 @@ class Axonium:
     rr, cc = line(ankor[0], ankor[1], self.cellkernel[0], self.cellkernel[1])
     self.path[rr,cc] = True
     print('pathlength:', self.pathLength)
-    print('maxLevel:', maxLevel)
+    print('maxLevel:', level)
+    
+ #   print("Path: ", self.timeit())
     
   #  self.updateLength()
     self.buttonToInsertMode()
@@ -261,12 +284,12 @@ class Axonium:
  #     pos, parent, depth = q.get()
       
     self.updateBigPath()
+ #   print("updateBigPath: ", self.timeit())
     
 ############ Right Mouse Clicks ###############
   
   def beginDrawing(self, event):
     self.drawingX, self.drawingY = int(event.x / self.skalierungsfaktor), int(event.y / self.skalierungsfaktor)
-    print("Start Drawing")
     if self.drawingMode == -1:
       self.measurePathLength = 0
       self.resetMeasureImg()
@@ -277,11 +300,9 @@ class Axonium:
     x = min(max(int(event.x / self.skalierungsfaktor), 1), self.imageSize[1] -2)
     y = min(max(int(event.y / self.skalierungsfaktor), 1), self.imageSize[0] -2)
 
-    print("Draw Line from ", self.drawingX, self.drawingY, " to ", x, y)
     rr, cc = line(self.drawingX, self.drawingY, x, y)
     if self.drawingMode == -1:
       if max(x-self.drawingX, y-self.drawingY,self.drawingX - x, self.drawingY - y) < self.precision:
-        print("Movement too short")
         return
       self.measureImage[cc, rr] = [255,255,255]
       self.measureImage[cc+1, rr] = [255,255,255]
@@ -289,7 +310,6 @@ class Axonium:
       self.measureImage[cc, rr+1] = [255,255,255]
       self.measureImage[cc, rr-1] = [255,255,255]
       self.measurePathLength = self.measurePathLength + np.sqrt((self.drawingX - x)*(self.drawingX - x)+(self.drawingY - y)*(self.drawingY - y))
-      print(self.measurePathLength)
       self.buttonToInsertMode()
       self.drawingX, self.drawingY = x, y # letzte Position aktualisieren
     else:
@@ -312,7 +332,7 @@ class Axonium:
       self.measureImage[cc, rr+1] = [255,255,255]
       self.measureImage[cc, rr-1] = [255,255,255]
       self.measurePathLength = self.measurePathLength + np.sqrt((self.drawingX - x)*(self.drawingX - x)+(self.drawingY - y)*(self.drawingY - y))
-      print(self.measurePathLength)
+      print("Pfadlänge: ", self.measurePathLength)
       self.buttonToInsertMode()     
     else:
       self.updateLabels()
@@ -348,6 +368,7 @@ class Axonium:
     
 ########### Drawing Mode Button Events ############
   def selectPen(self, event = 0):
+    print("Pen Mode")
     self.buttonPen.config(background = 'green', state = DISABLED)    
     self.buttonEreaser.config(background = 'lightgrey', state = NORMAL)
     self.buttonDistance.config(background = 'lightgrey', state = NORMAL)
@@ -358,6 +379,7 @@ class Axonium:
     self.updateInsertButton()
     
   def selectEreaser(self, event = 0):
+    print("Eraser Mode")
     self.buttonPen.config(background = 'lightgrey', state = NORMAL)    
     self.buttonEreaser.config(background = 'green', state = DISABLED)  
     self.buttonDistance.config(background = 'lightgrey', state = NORMAL)
@@ -368,9 +390,11 @@ class Axonium:
     self.updateInsertButton()
     
   def selectDistance(self, event = 0):
+    print("Distance Mode")
     self.buttonPen.config(background = 'lightgrey', state = NORMAL)    
     self.buttonEreaser.config(background = 'lightgrey', state = NORMAL)
     self.buttonDistance.config(background = 'green', state = DISABLED)
+    self.updateMeasureImageOriginal()
     self.resetMeasureImg()
     if self.drawingMode != -1:
       self.drawingMode = -1
@@ -390,6 +414,7 @@ class Axonium:
       else:
         length = int(self.pathLength)
       self.listboxLength.insert(END, length)
+      self.listboxLength.yview(END) #nach unten scrollen
       print("write backup")
       backup = open(self.backupName, "a")
       backup.write(str(length)+'\n')
@@ -468,6 +493,7 @@ class Axonium:
     self.saveStatus()
     if i != (): # ist etwas ausgewaehlt?
       self.initiateImage(self.folderPath + '/' + self.listboxFiles.get(i))
+      self.labelFilename['text'] = self.folderPath + '/' + self.listboxFiles.get(i)
     
   def initiateImage(self, filepath):
     print("opening", filepath)
@@ -478,24 +504,20 @@ class Axonium:
     except Exception:
       self.image = Image.new("RGB", self.imageSize)
       print(self.image)
-    
     ## als Array abspeichern
     self.arrayImg = np.asarray(self.image).copy()
     ## Das Bild auf einen Wert vereinfachen.
-    r = self.arrayImg[:,:,0]
-    g = self.arrayImg[:,:,1]
-    b = self.arrayImg[:,:,2]
-    self.monochrom = r + g + b #das Bild mit nurnoch einem Wert pro Pixel
+    self.monochrom = self.arrayImg.sum(axis=2)
     
    
     ## The original Image:
     imageResize = self.image.resize(self.displaySize)
     self.imageTk = ImageTk.PhotoImage(imageResize)
     self.imageWid.itemconfig(self.image_on_canvas, image = self.imageTk)
-    
-    self.updateMeasureImageOriginal()
+    if self.drawingMode == -1:
+      self.updateMeasureImageOriginal()
+      self.resetMeasureImg()
     self.resetSelection()
-    self.resetMeasureImg()
     self.updateMask()
     self.updateImg()
     
@@ -523,10 +545,9 @@ class Axonium:
 ############### Mask sowie die Labels werden aktualisiert ############
   def updateMask(self):    ## erstelle neue Mask
     print("updateMask")
-    self.mask = (self.monochrom  >= self.sliderThreshold.get())
-    
+    self.mask = (self.monochrom  >= self.sliderThreshold.get())   
     selem = disk(self.sliderJump.get())
-    self.bluredMask = dilation(self.mask, selem) / 255
+    binary_dilation(self.mask, selem, out = self.bluredMask)
     self.updateLabels()
 
     
@@ -536,7 +557,7 @@ class Axonium:
     self.labels = label(self.bluredMask, neighbors=8, background = 0)
     
   def updateBigPath(self):
-    self.bigPath = dilation(self.path, disk(3)) # Warnung for rounding (doesnt matter)  
+    binary_dilation(self.path, disk(3), out=self.bigPath) # Warnung for rounding (doesnt matter)  
 
 ################### Bild aktualisieren ###############
   def updateImg(self):
@@ -548,9 +569,9 @@ class Axonium:
     else:
       maskScaled = 100* self.mask   
       if self.showSelection:
-        self.arrayImg[:,:,0] = np.minimum(50*self.bluredMask + maskScaled + self.bigPath,255)
-        self.arrayImg[:,:,1] = np.minimum(50*self.selection + self.bigPath,255)
-        self.arrayImg[:,:,2] = np.minimum(np.maximum(maskScaled - 50* self.selection, 0) + self.bigPath, 255)
+        self.arrayImg[:,:,0] = np.minimum(50*self.bluredMask + maskScaled + 255*self.bigPath,255)
+        self.arrayImg[:,:,1] = np.minimum(50*self.selection + 255*self.bigPath,255)
+        self.arrayImg[:,:,2] = np.minimum(np.maximum(maskScaled - 50* self.selection, 0) + 255*self.bigPath, 255)
 
         rr, cc = circle(self.cellkernel[1], self.cellkernel[0], 7)
         self.arrayImg[cc,rr,0] = 0
@@ -576,11 +597,12 @@ class Axonium:
 
 ################### Auswahl aufheben ##################
   def resetSelection(self):
+    print("resetSelection")
     self.selection = np.zeros(self.imageSize)
     self.showSelection = False
     self.buttonLength.config(text='Kein Weg', state = DISABLED)
     
-    
+################### Status speichern/laden ############
   def saveStatus(self):
     status = {"folderPath" :self.folderPath, 
                   "currentFileSelection" : self.listboxFiles.curselection(), 
@@ -608,6 +630,13 @@ class Axonium:
   def closing(self):
     if messagebox.askokcancel("Beenden", "Wirklich beenden?"):
         self.main.destroy()
+        
+######### Utils########################
+#  def timeit(self):
+#    curTime = time()
+#    string = "*** " + str((curTime -self.time)*1000) + "ms ***"
+#    self.time = curTime
+#    return string
 
 instance = Axonium()
 
