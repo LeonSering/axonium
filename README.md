@@ -2,13 +2,13 @@
 
 Axonium is a tool for automatically measuring the length of [axons](https://en.wikipedia.org/wiki/Axon), the nerve fiber connection neurons in a biological brain.
 
-During her studies in the neurology, my girlfriend had to measure the length of a lot of axons. They used TODO to load the .tiff-image and then measure the length (in pixel) by a simple ruler tool and then enter the value into an Excel table.
+During her studies in the neurology, my girlfriend had to measure the length of a lot of axons. They used TODO to load the TIFF-image and then measure the length (in pixel) by a simple ruler tool and then enter the value into an Excel table.
 
 As it was necessary to measures thousands of axons, and each measurement took quite long and was error prune, I decided to write a small tool, to make this automatically.
 
 The basic idea is the following:
 
-1. First isolate the axons by making it monochrome (so each pixel is either false (black background) or true (colored foreground = axons) based on an adjustable threshold).
+1. First isolate the axons by making it monochrome, i.e., each pixel is either false (black background) or true (colored foreground = axons) based on an adjustable threshold.
 
 2. Then skeletonize the axons with the [medial axis transformation](https://scikit-image.org/docs/stable/api/skimage.morphology.html#skimage.morphology.medial_axis). Basically, the axon (connected components in the monochrome image) are shrunk to have a width of one pixel.
 
@@ -52,7 +52,7 @@ python3 with pip
    python3 axonium.py
    ```
 
-2. Open a folder with TIF-images of axons (e.g. the images in examples_images/)
+2. Open a folder with TIFF-images of axons (e.g. the images in examples_images/)
 
 3. Select an image on the left panel.
 
