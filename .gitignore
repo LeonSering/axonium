@@ -2,3 +2,4 @@
 backup/*
 status.pickle
 *.xlsx
+env

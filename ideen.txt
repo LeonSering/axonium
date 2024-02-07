@@ -1,2 +1,0 @@
-Features
-Geschwindigkeit erhöhen (Sparse matrix)
