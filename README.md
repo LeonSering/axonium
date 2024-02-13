@@ -4,11 +4,11 @@ Axonium is a tool for automatically measuring the length of [axons](https://en.w
 
 During her studies in the neurology, my girlfriend had to measure the length of a lot of axons. They used ImageScope to load the TIFF-image and then measure the length (in pixel) by a simple ruler tool and then enter the value into Excel.
 
-As it was necessary to measures thousands of axons, and each measurement took quite long and was error prune, I decided to write a small tool, to make this automatically.
+As it was necessary to measures thousands of axons, and each measurement took quite long and was error prune, I decided to write a small tool, to automate this process.
 
 The basic idea is the following:
 
-1. First isolate the axons by making it monochrome, i.e., each pixel is either false (black background) or true (colored foreground = axons) based on an adjustable threshold.
+1. First isolate the axons by making the image monochrome, i.e., each pixel is either false (black background) or true (colored foreground = axons) based on an adjustable threshold.
 
 2. Then skeletonize the axons with the [medial axis transformation](https://scikit-image.org/docs/stable/api/skimage.morphology.html#skimage.morphology.medial_axis). Basically, the axon (connected components in the monochrome image) are shrunk to have a width of one pixel.
 
