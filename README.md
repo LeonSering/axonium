@@ -1,6 +1,6 @@
 # Axonium
 
-Axonium is a tool for automatic measuremehts of [axon](https://en.wikipedia.org/wiki/Axon) lengths, the nerve fiber connection neurons in a brain.
+Axonium is a tool for automatic measuremehts of [axon](https://en.wikipedia.org/wiki/Axon) lengths, the nerve fibers connecting neurons in a brain.
 
 During her studies in the neurology, my girlfriend had to measure the length of a lot of axons. They used ImageScope to load the TIFF-image and then measure the length (in pixel) by a simple ruler tool and then enter the value into Excel.
 
